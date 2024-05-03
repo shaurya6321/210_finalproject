@@ -53,14 +53,21 @@ pub fn convert_columns_to_float(
     file_path: &str,
     column_names: &[&str],
 ) -> Result<DataFrame, Box<dyn Error>> {
-    let mut df = CsvReader::from_path(file_path)?.infer_schema(None).finish()?;
+    let mut df = CsvReader::from_path(file_path)?
+        .infer_schema(None)
+        .has_header(true)
+        .finish()?;
 
     for column_name in column_names {
-        if let Ok(column) = df.column(column_name) {
-            if let Ok(converted_series) = column.cast(&DataType::Float64) {
-                df = df.with_column(converted_series).unwrap().clone();
-            }
-        }
+        let column = df.column(column_name)
+            .map_err(|e| format!("Failed to find column '{}': {}", column_name, e))?
+            .cast(&DataType::Float64)
+            .map_err(|e| format!("Failed to cast column '{}' to Float64: {}", column_name, e))?;
+
+        // Use `with_column` and correctly handle the returned mutable reference to DataFrame
+        df = df.with_column(column)
+            .map_err(|e| format!("Failed to replace column '{}': {}", column_name, e))?
+            .clone(); // Cloning the DataFrame to match the expected return type
     }
 
     Ok(df)
