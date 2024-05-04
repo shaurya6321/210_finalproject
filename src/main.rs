@@ -6,8 +6,9 @@ use polars::prelude::*;
 use std::io::BufReader;
 use csv::Writer;
 
+
 mod data_distribution;
-// mod column_info;
+mod column_info;
 mod analysis;
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -25,6 +26,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         current_dir.join(Path::new("subset_data_5.csv")),
     ];
 
+
     // Print the file paths for debugging
     println!("Input files:");
     for file in &input_files {
@@ -37,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     // Print column information for input files
-    // column_info::print_column_info(&input_files.iter().map(|p| p.to_str().unwrap_or_default()).collect::<Vec<_>>())?;
+    column_info::print_column_info(&input_files.iter().map(|p| p.to_str().unwrap_or_default()).collect::<Vec<_>>())?;
 
     // Combine data from multiple CSV files, ensuring unique headers
     let (header, combined_data) = combine_csv_files(&input_files.iter().map(|p| p.to_str().unwrap_or_default()).collect::<Vec<_>>())?;
@@ -46,17 +48,17 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Convert relevant columns in each subset to float where necessary (only for numeric columns)
     let numeric_columns = ["WhiteElo", "BlackElo", "WhiteRatingDiff", "BlackRatingDiff"];
-    // let dataframes = convert_columns_in_files(&output_files.iter().map(|p| p.to_str().unwrap_or_default()).collect::<Vec<_>>(), &numeric_columns)?;
+    let dataframes = convert_columns_in_files(&output_files.iter().map(|p| p.to_str().unwrap_or_default()).collect::<Vec<_>>(), &numeric_columns)?;
 
     // Combine the DataFrames for a single output
-    // let mut combined_dataframe = data_distribution::combine_dataframes(dataframes)?;
+    let mut combined_dataframe = data_distribution::combine_dataframes(dataframes)?;
 
     // Write combined DataFrame to CSV
-    // let output_file = current_dir.join("combined_data.csv");
-    // let file = File::create(&output_file)?;
-    // let mut csv_writer = CsvWriter::new(file);
-    // csv_writer.finish(&mut combined_dataframe)
-    //     .map_err(|e| Box::new(e) as Box<dyn Error>)?;
+    let output_file = current_dir.join("combined_data.csv");
+    let file = File::create(&output_file)?;
+    let mut csv_writer = CsvWriter::new(file);
+    csv_writer.finish(&mut combined_dataframe)
+        .map_err(|e| Box::new(e) as Box<dyn Error>)?;
 
     // Analyze the combined game data and export all analysis results to a single CSV file
     let analysis_output_file = current_dir.join("analysis_output.csv");
@@ -87,7 +89,6 @@ fn combine_csv_files(files: &[&str]) -> Result<(String, Vec<String>), Box<dyn Er
     Ok((header, combined_data))
 }
 
-/*
 fn convert_columns_in_files(files: &[&str], columns: &[&str]) -> Result<Vec<DataFrame>, Box<dyn Error>> {
     let mut dataframes = Vec::new();
     for file_path in files {
@@ -104,7 +105,6 @@ fn convert_columns_in_files(files: &[&str], columns: &[&str]) -> Result<Vec<Data
     }
     Ok(dataframes)
 }
-*/
 
 fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Result<(), Box<dyn Error>> {
     println!("Analysis output file: {}", output_file.display());
@@ -117,6 +117,9 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
     let btw_scores_file = "./out/btw_scores.csv";
     let cls_scores_file = "./out/cls_scores.csv";
     let player_perf_file = "./out/player_perf.csv";
+    let in_out_degree_file = "./out/in_out_degree.csv";
+    let weighted_centrality_file = "./out/weighted_centrality.csv";
+    let mean_mode_metrics_file = "./out/mean_mode_metrics.csv";
 
     for input_file in input_files {
         let df = CsvReader::from_path(Path::new(input_file))?
@@ -131,6 +134,15 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
         let closeness_centrality = analysis::calculate_closeness_centrality(&graph);
         let performance = analysis::track_player_performance(&games);
 
+        // Calculate in-degree and out-degree centrality
+        let in_out_degree_centrality = analysis::calculate_in_out_degree_centrality(&graph);
+        
+        // Calculate weighted centrality measures
+        let (weighted_betweenness, weighted_closeness) = analysis::calculate_weighted_centrality(&graph);
+        
+        // Calculate mean and mode of various metrics
+        let mean_mode_metrics = analysis::calculate_mean_mode(&games);
+
         // Export pagerank scores using the export_centrality_data function
         analysis::export_centrality_data(&pagerank_scores, &graph, pr_scores_file)?;
 
@@ -142,33 +154,42 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
 
         // Export player performance data using the export_performance function
         analysis::export_performance(&performance, player_perf_file)?;
+        
+        // Export in-degree and out-degree centrality scores
+        analysis::export_in_out_degree_centrality(&in_out_degree_centrality, &graph, in_out_degree_file)?;
+        
+        // Export weighted centrality scores
+        analysis::export_weighted_centrality(&weighted_betweenness, &weighted_closeness, &graph, weighted_centrality_file)?;
+        
+        // Export mean and mode metrics
+        analysis::export_mean_mode_metrics(&mean_mode_metrics, mean_mode_metrics_file)?;
     }
 
     // Combine the separate analysis result files into a single output file
     let mut output_writer = Writer::from_path(output_file)?;
     
     // Write headers for the combined output file
-    output_writer.write_record(&["Analysis Type", "Player", "Score"])?;
+    output_writer.write_record(&["Analysis Type", "Player", "Score", "Win Rate", "Draws", "Mean Rating Diff", "Game Count"])?;
 
     // Append pagerank scores to the output file
     let mut pr_reader = csv::Reader::from_path(pr_scores_file)?;
     for result in pr_reader.records() {
         let record = result?;
-        output_writer.write_record(&["PageRank", &record[0], &record[1]])?;
+        output_writer.write_record(&["PageRank", &record[0], &record[1], "", "", "", ""])?;
     }
 
     // Append betweenness centrality scores to the output file
     let mut btw_reader = csv::Reader::from_path(btw_scores_file)?;
     for result in btw_reader.records() {
         let record = result?;
-        output_writer.write_record(&["Betweenness Centrality", &record[0], &record[1]])?;
+        output_writer.write_record(&["Betweenness Centrality", &record[0], &record[1], "", "", "", ""])?;
     }
 
     // Append closeness centrality scores to the output file
     let mut cls_reader = csv::Reader::from_path(cls_scores_file)?;
     for result in cls_reader.records() {
         let record = result?;
-        output_writer.write_record(&["Closeness Centrality", &record[0], &record[1]])?;
+        output_writer.write_record(&["Closeness Centrality", &record[0], &record[1], "", "", "", ""])?;
     }
 
     // Append player performance data to the output file
@@ -184,6 +205,37 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
             &record[4],
             &record[5],
             &record[6],
+        ])?;
+    }
+
+    // Append in-degree and out-degree centrality scores to the output file
+    let mut in_out_degree_reader = csv::Reader::from_path(in_out_degree_file)?;
+    for result in in_out_degree_reader.records() {
+        let record = result?;
+        output_writer.write_record(&["In-Degree", &record[0], &record[1], "", "", "", ""])?;
+        output_writer.write_record(&["Out-Degree", &record[0], &record[1], "", "", "", ""])?;
+    }
+
+    // Append weighted centrality scores to the output file
+    let mut weighted_centrality_reader = csv::Reader::from_path(weighted_centrality_file)?;
+    for result in weighted_centrality_reader.records() {
+        let record = result?;
+        output_writer.write_record(&["Weighted Betweenness", &record[0], &record[1], "", "", "", ""])?;
+        output_writer.write_record(&["Weighted Closeness", &record[0], &record[1], "", "", "", ""])?;
+    }
+
+    // Append mean and mode metrics to the output file
+    let mut mean_mode_metrics_reader = csv::Reader::from_path(mean_mode_metrics_file)?;
+    for result in mean_mode_metrics_reader.records() {
+        let record = result?;
+        output_writer.write_record(&[
+            "Mean/Mode Metrics",
+            &record[0],
+            "",
+            &record[1],
+            &record[2],
+            &record[3],
+            &record[4],
         ])?;
     }
 

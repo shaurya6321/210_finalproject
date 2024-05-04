@@ -193,34 +193,154 @@ pub fn export_centrality_data(centrality_scores: &HashMap<NodeIndex, f64>, graph
 }
 
 pub fn export_performance(performance: &HashMap<String, PlayerPerformance>, filepath: &str) -> Result<(), Box<dyn Error>> {
-    let file = OpenOptions::new().write(true). create(true).open(filepath)?;
+    let file = OpenOptions::new().write(true).create(true).open(filepath)?;
     let mut wtr = Writer::from_writer(BufWriter::new(file));
     for (player, stats) in performance.iter() {
-        wtr.serialize((player.clone(), stats))?;
+        wtr.serialize((
+            player.clone(),
+            stats.games_played,
+            stats.games_won,
+            stats.games_lost,
+            stats.games_drawn,
+            stats.total_rating_change,
+            stats.win_rate,
+        ))?;
     }
     wtr.flush()?;
     Ok(())
 }
 
 pub fn track_player_performance(games: &[Game]) -> HashMap<String, PlayerPerformance> {
-    let mut performance: HashMap<String, PlayerPerformance> = HashMap::new();
+    let mut white_performance: HashMap<String, PlayerPerformance> = HashMap::new();
+    let mut black_performance: HashMap<String, PlayerPerformance> = HashMap::new();
 
     for game in games {
-        let white_result = match game.result.as_ref() {
+        let (white_result, black_result) = match game.result.as_str() {
             "1-0" => ("1-0", "0-1"),
             "0-1" => ("0-1", "1-0"),
             "1/2-1/2" => ("1/2-1/2", "1/2-1/2"),
             _ => continue,
         };
 
-        performance.entry(game.white.clone())
-            .or_default()
-            .update(white_result.0, game.white_rating_diff.unwrap_or(0.0));
+        let white_entry = white_performance.entry(game.white.clone()).or_insert_with(PlayerPerformance::default);
+        let black_entry = black_performance.entry(game.black.clone()).or_insert_with(PlayerPerformance::default);
 
-        performance.entry(game.black.clone())
-            .or_default()
-            .update(white_result.1, game.black_rating_diff.unwrap_or(0.0));
+        white_entry.update(white_result, game.white_rating_diff.unwrap_or(0.0));
+        black_entry.update(black_result, game.black_rating_diff.unwrap_or(0.0));
     }
 
-    performance
+    white_performance.into_iter().chain(black_performance.into_iter()).collect()
+}
+
+pub fn calculate_in_out_degree_centrality(graph: &DiGraph<String, u32>) -> HashMap<NodeIndex, (usize, usize)> {
+    let mut in_out_degree_centrality = HashMap::new();
+
+    for node in graph.node_indices() {
+        let in_degree = graph.neighbors_directed(node, petgraph::Direction::Incoming).count();
+        let out_degree = graph.neighbors_directed(node, petgraph::Direction::Outgoing).count();
+        in_out_degree_centrality.insert(node, (in_degree, out_degree));
+    }
+
+    in_out_degree_centrality
+}
+
+pub fn calculate_weighted_centrality(graph: &DiGraph<String, u32>) -> (HashMap<NodeIndex, f64>, HashMap<NodeIndex, f64>) {
+    let weighted_betweenness = betweenness_centrality(graph, true, true, graph.node_count());
+    let weighted_closeness = closeness_centrality(graph, true);
+
+    let weighted_betweenness_scores: HashMap<NodeIndex, f64> = graph
+        .node_indices()
+        .zip(weighted_betweenness.into_iter())
+        .filter_map(|(i, s)| s.map(|score| (i, score)))
+        .collect();
+
+    let weighted_closeness_scores: HashMap<NodeIndex, f64> = graph
+        .node_indices()
+        .zip(weighted_closeness.into_iter())
+        .filter_map(|(i, s)| s.map(|score| (i, score)))
+        .collect();
+
+    (weighted_betweenness_scores, weighted_closeness_scores)
+}
+
+pub fn export_in_out_degree_centrality(
+    in_out_degree_centrality: &HashMap<NodeIndex, (usize, usize)>,
+    graph: &DiGraph<String, u32>,
+    filepath: &str,
+) -> Result<(), Box<dyn Error>> {
+    let file = OpenOptions::new().write(true).create(true).open(filepath)?;
+    let mut wtr = Writer::from_writer(BufWriter::new(file));
+    for (node, &(in_degree, out_degree)) in in_out_degree_centrality.iter() {
+        wtr.serialize((graph[*node].clone(), in_degree, out_degree))?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+pub fn export_weighted_centrality(
+    weighted_betweenness: &HashMap<NodeIndex, f64>,
+    weighted_closeness: &HashMap<NodeIndex, f64>,
+    graph: &DiGraph<String, u32>,
+    filepath: &str,
+) -> Result<(), Box<dyn Error>> {
+    let file = OpenOptions::new().write(true).create(true).open(filepath)?;
+    let mut wtr = Writer::from_writer(BufWriter::new(file));
+    for (node, &betweenness) in weighted_betweenness.iter() {
+        let closeness = weighted_closeness[node];
+        wtr.serialize((graph[*node].clone(), betweenness, closeness))?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+pub fn export_mean_mode_metrics(
+    mean_mode_metrics: &HashMap<String, (f64, f64, f64, u32)>,
+    filepath: &str,
+) -> Result<(), Box<dyn Error>> {
+    let file = OpenOptions::new().write(true).create(true).open(filepath)?;
+    let mut wtr = Writer::from_writer(BufWriter::new(file));
+    for (player, &(win_rate, draws, mean_rating_diff, game_count)) in mean_mode_metrics.iter() {
+        wtr.serialize((player.clone(), win_rate, draws, mean_rating_diff, game_count))?;
+    }
+    wtr.flush()?;
+    Ok(())
+}
+
+pub fn calculate_mean_mode(games: &[Game]) -> HashMap<String, (f64, f64, f64, u32)> {
+    let mut white_metrics = HashMap::new();
+    let mut black_metrics = HashMap::new();
+
+    for game in games {
+        let white_entry = white_metrics.entry(game.white.clone()).or_insert((0.0, 0.0, 0.0, 0));
+        let black_entry = black_metrics.entry(game.black.clone()).or_insert((0.0, 0.0, 0.0, 0));
+
+        match game.result.as_str() {
+            "1-0" => {
+                white_entry.0 += 1.0; // Increment win count for white player
+            }
+            "0-1" => {
+                black_entry.0 += 1.0; // Increment win count for black player
+            }
+            "1/2-1/2" => {
+                white_entry.1 += 0.5; // Increment draw count for white player
+                black_entry.1 += 0.5; // Increment draw count for black player
+            }
+            _ => {}
+        }
+
+        white_entry.2 += game.white_rating_diff.unwrap_or(0.0) as f64; // Accumulate rating difference for white player
+        black_entry.2 += game.black_rating_diff.unwrap_or(0.0) as f64; // Accumulate rating difference for black player
+
+        white_entry.3 += 1; // Increment game count for white player
+        black_entry.3 += 1; // Increment game count for black player
+    }
+
+    let mut player_metrics = HashMap::new();
+    for (player, (wins, draws, rating_diff_sum, game_count)) in white_metrics.into_iter().chain(black_metrics.into_iter()) {
+        let win_rate = wins / game_count as f64;
+        let mean_rating_diff = rating_diff_sum / game_count as f64;
+        player_metrics.insert(player, (win_rate, draws, mean_rating_diff, game_count));
+    }
+
+    player_metrics
 }
