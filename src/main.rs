@@ -5,11 +5,14 @@ use std::path::Path;
 use polars::prelude::*;
 use std::io::BufReader;
 use csv::Writer;
+use std::collections::HashMap;
+
 
 
 mod data_distribution;
 mod column_info;
 mod analysis;
+mod strategy_analysis;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Construct relative file paths
@@ -76,8 +79,6 @@ fn combine_csv_files(files: &[&str]) -> Result<(String, Vec<String>), Box<dyn Er
 }
 
 fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Result<(), Box<dyn Error>> {
-
-
     // Create the output directory in the current working directory
     std::fs::create_dir_all("./out")?;
 
@@ -90,6 +91,8 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
     let weighted_centrality_file = "./out/weighted_centrality.csv";
     let mean_mode_metrics_file = "./out/mean_mode_metrics.csv";
 
+    let mut output_writer = Writer::from_path(output_file)?;
+
     for input_file in input_files {
         let file = File::open(input_file)?;
         let reader = BufReader::new(file);
@@ -97,7 +100,6 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
             .infer_schema(None)
             .has_header(true)
             .finish()?;
-        
 
         let games = analysis::read_games_from_dataframe(&df)?;
         let graph = analysis::build_graph(&games);
@@ -108,12 +110,43 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
 
         // Calculate in-degree and out-degree centrality
         let in_out_degree_centrality = analysis::calculate_in_out_degree_centrality(&graph);
-        
+
         // Calculate weighted centrality measures
         let (weighted_betweenness, weighted_closeness) = analysis::calculate_weighted_centrality(&graph);
-        
+
         // Calculate mean and mode of various metrics
         let mean_mode_metrics = analysis::calculate_mean_mode(&games);
+
+        // Calculate ECO classifications for these games
+        let mut player_eco_classifications: HashMap<String, HashMap<String, u32>> = HashMap::new();
+        for (eco, game_group) in strategy_analysis::classify_games_by_eco(&games).iter() {
+            for game in game_group {
+                let white_player = &game.white;
+                let black_player = &game.black;
+
+                player_eco_classifications
+                    .entry(white_player.clone())
+                    .or_insert_with(HashMap::new)
+                    .entry(eco.clone())
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+
+                player_eco_classifications
+                    .entry(black_player.clone())
+                    .or_insert_with(HashMap::new)
+                    .entry(eco.clone())
+                    .and_modify(|count| *count += 1)
+                    .or_insert(1);
+            }
+        }
+
+        // Write ECO classifications to the output file
+        output_writer.write_record(&["Player", "ECO", "Count", "", "", "", ""])?;
+        for (player, eco_counts) in &player_eco_classifications {
+            for (eco, count) in eco_counts {
+                output_writer.write_record(&[player.as_str(), eco.as_str(), &count.to_string(), "", "", "", ""])?;
+            }
+        }
 
         // Export pagerank scores using the export_centrality_data function
         analysis::export_centrality_data(&pagerank_scores, &graph, pr_scores_file)?;
@@ -126,20 +159,17 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
 
         // Export player performance data using the export_performance function
         analysis::export_performance(&performance, player_perf_file)?;
-        
+
         // Export in-degree and out-degree centrality scores
         analysis::export_in_out_degree_centrality(&in_out_degree_centrality, &graph, in_out_degree_file)?;
-        
+
         // Export weighted centrality scores
         analysis::export_weighted_centrality(&weighted_betweenness, &weighted_closeness, &graph, weighted_centrality_file)?;
-        
+
         // Export mean and mode metrics
         analysis::export_mean_mode_metrics(&mean_mode_metrics, mean_mode_metrics_file)?;
     }
 
-    // Combine the separate analysis result files into a single output file
-    let mut output_writer = Writer::from_path(output_file)?;
-    
     // Write headers for the combined output file
     output_writer.write_record(&["Analysis Type", "Player", "Score", "Win Rate", "Draws", "Mean Rating Diff", "Game Count"])?;
 
@@ -213,7 +243,7 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
     output_writer.flush()?;
 
     Ok(())
-} 
+}
 
 
 
