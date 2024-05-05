@@ -10,7 +10,8 @@ use rustworkx_core::centrality::{betweenness_centrality, closeness_centrality};
 use polars::prelude::*;
 use csv::Writer;
 
-#[derive(Debug, Deserialize)]
+
+#[derive(Debug, Deserialize, Default)]
 pub struct Game {
     pub game_id: String,
     pub event: String,
@@ -216,9 +217,22 @@ pub fn track_player_performance(games: &[Game]) -> HashMap<String, PlayerPerform
 
     for game in games {
         let (white_result, black_result) = match game.result.as_str() {
-            "1-0" => ("1-0", "0-1"),
-            "0-1" => ("0-1", "1-0"),
-            "1/2-1/2" => ("1/2-1/2", "1/2-1/2"),
+            "Normal" => {
+                if game.white_rating_diff.unwrap_or(0.0) > 0.0 {
+                    ("1-0", "0-1")
+                } else if game.black_rating_diff.unwrap_or(0.0) > 0.0 {
+                    ("0-1", "1-0")
+                } else {
+                    ("1/2-1/2", "1/2-1/2")
+                }
+            }
+            "Time forfeit" => {
+                if game.white_rating_diff.unwrap_or(0.0) > 0.0 {
+                    ("1-0", "0-1")
+                } else {
+                    ("0-1", "1-0")
+                }
+            }
             _ => continue,
         };
 
@@ -343,4 +357,5 @@ pub fn calculate_mean_mode(games: &[Game]) -> HashMap<String, (f64, f64, f64, u3
     }
 
     player_metrics
-}
+} 
+

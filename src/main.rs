@@ -26,14 +26,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         current_dir.join(Path::new("subset_data_5.csv")),
     ];
 
-
     // Print the file paths for debugging
-    println!("Input files:");
+
     for file in &input_files {
         println!("{}", file.display());
     }
     
-    println!("Output files:");
+
     for file in &output_files {
         println!("{}", file.display());
     }
@@ -76,10 +75,8 @@ fn combine_csv_files(files: &[&str]) -> Result<(String, Vec<String>), Box<dyn Er
     Ok((header, combined_data))
 }
 
-
-
 fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Result<(), Box<dyn Error>> {
-    println!("Analysis output file: {}", output_file.display());
+
 
     // Create the output directory in the current working directory
     std::fs::create_dir_all("./out")?;
@@ -100,6 +97,7 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
             .infer_schema(None)
             .has_header(true)
             .finish()?;
+        
 
         let games = analysis::read_games_from_dataframe(&df)?;
         let graph = analysis::build_graph(&games);
@@ -173,12 +171,11 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
         output_writer.write_record(&[
             "Player Performance",
             &record[0],
-            &record[1],
-            &record[2],
-            &record[3],
-            &record[4],
-            &record[5],
+            "",
             &record[6],
+            &record[3],
+            &record[5],
+            &record[1],
         ])?;
     }
 
@@ -216,4 +213,144 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
     output_writer.flush()?;
 
     Ok(())
+} 
+
+
+
+
+
+#[cfg(test)]
+mod tests {
+    use crate::analysis::{Game, build_graph, calculate_in_out_degree_centrality, export_in_out_degree_centrality};
+    use std::fs::File;
+    use std::io::Read;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_build_graph() {
+        let games = vec![
+            Game {
+                game_id: "1".to_string(),
+                white: "Player1".to_string(),
+                black: "Player2".to_string(),
+                result: "1-0".to_string(),
+                ..Default::default()
+            },
+            Game {
+                game_id: "2".to_string(),
+                white: "Player2".to_string(),
+                black: "Player3".to_string(),
+                result: "0-1".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        let graph = build_graph(&games);
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.edge_count(), 2);
+    }
+
+    #[test]
+    fn test_calculate_pagerank() {
+        let games = vec![
+            Game {
+                game_id: "1".to_string(),
+                white: "Player1".to_string(),
+                black: "Player2".to_string(),
+                result: "1-0".to_string(),
+                ..Default::default()
+            },
+            Game {
+                game_id: "2".to_string(),
+                white: "Player2".to_string(),
+                black: "Player3".to_string(),
+                result: "0-1".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        let graph = build_graph(&games);
+        let pagerank_scores = calculate_pagerank(&graph);
+        assert_eq!(pagerank_scores.len(), 3);
+        // Add more assertions to check the expected PageRank scores
+    }
+
+    #[test]
+    fn test_calculate_in_out_degree_centrality() {
+        let games = vec![
+            Game {
+                game_id: "1".to_string(),
+                white: "Player1".to_string(),
+                black: "Player2".to_string(),
+                result: "1-0".to_string(),
+                ..Default::default()
+            },
+            Game {
+                game_id: "2".to_string(),
+                white: "Player2".to_string(),
+                black: "Player3".to_string(),
+                result: "0-1".to_string(),
+                ..Default::default()
+            },
+            Game {
+                game_id: "3".to_string(),
+                white: "Player3".to_string(),
+                black: "Player1".to_string(),
+                result: "1/2-1/2".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        let graph = build_graph(&games);
+        let in_out_degree_centrality = calculate_in_out_degree_centrality(&graph);
+        assert_eq!(in_out_degree_centrality.len(), 3);
+
+        assert_eq!(in_out_degree_centrality[&graph.node_indices().nth(0).unwrap()], (1, 1));
+        assert_eq!(in_out_degree_centrality[&graph.node_indices().nth(1).unwrap()], (1, 1));
+        assert_eq!(in_out_degree_centrality[&graph.node_indices().nth(2).unwrap()], (1, 1));
+    }
+
+    use crate::analysis::calculate_pagerank;
+
+    #[test]
+    fn test_export_in_out_degree_centrality() {
+        let games = vec![
+            Game {
+                game_id: "1".to_string(),
+                white: "Player1".to_string(),
+                black: "Player2".to_string(),
+                result: "1-0".to_string(),
+                ..Default::default()
+            },
+            Game {
+                game_id: "2".to_string(),
+                white: "Player2".to_string(),
+                black: "Player3".to_string(),
+                result: "0-1".to_string(),
+                ..Default::default()
+            },
+        ];
+    
+        let graph = build_graph(&games);
+        let in_out_degree_centrality = calculate_in_out_degree_centrality(&graph);
+    
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("in_out_degree_centrality.csv");
+        export_in_out_degree_centrality(&in_out_degree_centrality, &graph, file_path.to_str().unwrap()).unwrap();
+    
+        let mut file = File::open(file_path).unwrap();
+        let mut contents = String::new();
+        file.read_to_string(&mut contents).unwrap();
+    
+        let mut actual_lines: Vec<&str> = contents.lines().collect();
+        actual_lines.sort();
+        let actual_contents = actual_lines.join("\n");
+    
+        let expected_lines: Vec<&str> = ["Player1,0,1", "Player2,1,1", "Player3,1,0"].to_vec();
+        let expected_contents = expected_lines.join("\n");
+    
+        assert_eq!(actual_contents, expected_contents);
+    }
+    
+
 }
