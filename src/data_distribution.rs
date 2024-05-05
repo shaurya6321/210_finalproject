@@ -1,4 +1,4 @@
-use polars::prelude::*;
+
 use std::error::Error;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -69,13 +69,4 @@ pub fn distribute_data(
 
     println!("Data writing complete. {} rows distributed.", row_index);
     Ok(())
-}
-
-pub fn combine_dataframes(dataframes: Vec<DataFrame>) -> Result<DataFrame, Box<dyn Error>> {
-    let mut combined_df = dataframes[0].clone();
-    for df in dataframes.into_iter().skip(1) {
-        combined_df = combined_df.vstack(&df)?;
-    }
-
-    Ok(combined_df)
 }

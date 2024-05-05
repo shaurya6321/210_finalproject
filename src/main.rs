@@ -15,8 +15,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Construct relative file paths
     let current_dir = std::env::current_dir()?;
     let input_files = [
-        current_dir.join(Path::new("games_metadata_profile_2024_01.csv")),
-        current_dir.join(Path::new("games_metadata_profile.csv")),
+        current_dir.join(Path::new("game1.csv")),
+        current_dir.join(Path::new("game2.csv")),
     ];
     let output_files = [
         current_dir.join(Path::new("subset_data_1.csv")),
@@ -46,20 +46,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Distribute combined data into subsets for detailed analysis
     data_distribution::distribute_data(&combined_data, &header, &output_files.iter().map(|p| p.to_str().unwrap_or_default()).collect::<Vec<_>>())?;
 
-    // Convert relevant columns in each subset to float where necessary (only for numeric columns)
-    let numeric_columns = ["WhiteElo", "BlackElo", "WhiteRatingDiff", "BlackRatingDiff"];
-    let dataframes = convert_columns_in_files(&output_files.iter().map(|p| p.to_str().unwrap_or_default()).collect::<Vec<_>>(), &numeric_columns)?;
-
-    // Combine the DataFrames for a single output
-    let mut combined_dataframe = data_distribution::combine_dataframes(dataframes)?;
-
-    // Write combined DataFrame to CSV
-    let output_file = current_dir.join("combined_data.csv");
-    let file = File::create(&output_file)?;
-    let mut csv_writer = CsvWriter::new(file);
-    csv_writer.finish(&mut combined_dataframe)
-        .map_err(|e| Box::new(e) as Box<dyn Error>)?;
-
+    
     // Analyze the combined game data and export all analysis results to a single CSV file
     let analysis_output_file = current_dir.join("analysis_output.csv");
     perform_game_data_analysis(&[output_files[0].to_str().unwrap()], &analysis_output_file)?;    
@@ -89,22 +76,7 @@ fn combine_csv_files(files: &[&str]) -> Result<(String, Vec<String>), Box<dyn Er
     Ok((header, combined_data))
 }
 
-fn convert_columns_in_files(files: &[&str], columns: &[&str]) -> Result<Vec<DataFrame>, Box<dyn Error>> {
-    let mut dataframes = Vec::new();
-    for file_path in files {
-        let df = CsvReader::from_path(Path::new(file_path))?
-            .infer_schema(None)
-            .has_header(true)
-            .finish()?;
 
-        let df_string = df.to_string();
-        let modified_df = column_info::convert_columns_to_float(&df_string, columns)
-            .map_err::<Box<dyn Error>, _>(Box::from)?;
-
-        dataframes.push(modified_df);
-    }
-    Ok(dataframes)
-}
 
 fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Result<(), Box<dyn Error>> {
     println!("Analysis output file: {}", output_file.display());
@@ -122,7 +94,9 @@ fn perform_game_data_analysis(input_files: &[&str], output_file: &Path) -> Resul
     let mean_mode_metrics_file = "./out/mean_mode_metrics.csv";
 
     for input_file in input_files {
-        let df = CsvReader::from_path(Path::new(input_file))?
+        let file = File::open(input_file)?;
+        let reader = BufReader::new(file);
+        let df = CsvReader::new(reader)
             .infer_schema(None)
             .has_header(true)
             .finish()?;
