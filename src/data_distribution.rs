@@ -14,7 +14,6 @@ pub fn distribute_data(
         return Ok(());
     }
 
-    // Specific columns to include
     let specific_columns = [
         "GameID", "Event", "White", "WhiteElo", "WhiteRatingDiff",
         "White_tosViolation", "White_playTime_total", "White_count_all",

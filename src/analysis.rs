@@ -69,9 +69,8 @@ impl PlayerPerformance {
 
 pub fn read_games_from_dataframe(df: &DataFrame) -> Result<Vec<Game>, Box<dyn Error>> {
     let mut games = Vec::new();
-    let row_count = df.height(); // Limit to the first 100 rows -- std::cmp::min(df.height(), 100)
+    let row_count = df.height();
 
-    // Retrieve columns once to avoid repeated lookups
     let game_id_col = df.column("GameID")?.utf8()?;
     let event_col = df.column("Event")?.utf8()?;
     let white_col = df.column("White")?.utf8()?;
@@ -79,13 +78,13 @@ pub fn read_games_from_dataframe(df: &DataFrame) -> Result<Vec<Game>, Box<dyn Er
     let white_rating_diff_col = df.column("WhiteRatingDiff")?.f64()?;
     let white_tos_violation_col = df.column("White_tosViolation")?.bool()?;
     let white_play_time_total_col = df.column("White_playTime_total")?.f64()?;
-    let white_count_all_col = df.column("White_count_all")?.f64()?; // Change to f64
+    let white_count_all_col = df.column("White_count_all")?.f64()?;
     let black_col = df.column("Black")?.utf8()?;
     let black_elo_col = df.column("BlackElo")?.i64()?;
     let black_rating_diff_col = df.column("BlackRatingDiff")?.f64()?;
     let black_tos_violation_col = df.column("Black_tosViolation")?.bool()?;
     let black_play_time_total_col = df.column("Black_playTime_total")?.f64()?;
-    let black_count_all_col = df.column("Black_count_all")?.f64()?; // Change to f64
+    let black_count_all_col = df.column("Black_count_all")?.f64()?; 
     let moves_col = df.column("Moves")?.utf8()?;
     let total_moves_col = df.column("TotalMoves")?.i64()?;
     let eco_col = df.column("ECO")?.utf8()?;
@@ -102,13 +101,13 @@ pub fn read_games_from_dataframe(df: &DataFrame) -> Result<Vec<Game>, Box<dyn Er
             white_rating_diff: white_rating_diff_col.get(idx).map(|v| v as f32),
             white_tos_violation: white_tos_violation_col.get(idx),
             white_play_time_total: white_play_time_total_col.get(idx).map(|v| v.to_string()),
-            white_count_all: white_count_all_col.get(idx).map(|v| v as u32), // Convert to u32
+            white_count_all: white_count_all_col.get(idx).map(|v| v as u32), 
             black: black_col.get(idx).unwrap_or_default().to_string(),
             black_elo: black_elo_col.get(idx).map(|v| v as u32),
             black_rating_diff: black_rating_diff_col.get(idx).map(|v| v as f32),
             black_tos_violation: black_tos_violation_col.get(idx),
             black_play_time_total: black_play_time_total_col.get(idx).map(|v| v.to_string()),
-            black_count_all: black_count_all_col.get(idx).map(|v| v as u32), // Convert to u32
+            black_count_all: black_count_all_col.get(idx).map(|v| v as u32), 
             moves: moves_col.get(idx).unwrap_or_default().to_string(),
             total_moves: total_moves_col.get(idx).map(|v| v as u32),
             eco: eco_col.get(idx).unwrap_or_default().to_string(),
@@ -128,7 +127,6 @@ pub fn build_graph(games: &[Game]) -> DiGraph<String, u32> {
     let mut player_indices = HashMap::new();
 
     for game in games {
-        // Directly use the strings since they are not optional
         let white_index = *player_indices
             .entry(game.white.clone())
             .or_insert_with(|| graph.add_node(game.white.clone()));
@@ -136,7 +134,6 @@ pub fn build_graph(games: &[Game]) -> DiGraph<String, u32> {
             .entry(game.black.clone())
             .or_insert_with(|| graph.add_node(game.black.clone()));
 
-        // Add an edge from white to black
         graph.add_edge(white_index, black_index, 1);
     }
 
@@ -148,7 +145,6 @@ pub fn calculate_pagerank(graph: &DiGraph<String, u32>) -> HashMap<NodeIndex, f6
     let mut pr = Pagerank::new();
     let mut node_indices = HashMap::new();
 
-    // Assign a unique numeric index to each node
     for node_index in graph.node_indices() {
         node_indices.insert(graph[node_index].clone(), node_index.index() as u64);
     }
@@ -164,7 +160,7 @@ pub fn calculate_pagerank(graph: &DiGraph<String, u32>) -> HashMap<NodeIndex, f6
 
     for (node_index, score) in pr.nodes().iter() {
         if let Some(index) = graph.node_indices().find(|&i| i.index() == node_index.parse::<usize>().unwrap()) {
-            pagerank_scores.insert(index, *score); // Dereference the score value
+            pagerank_scores.insert(index, *score);
         }
     }
 
@@ -330,23 +326,23 @@ pub fn calculate_mean_mode(games: &[Game]) -> HashMap<String, (f64, f64, f64, u3
 
         match game.result.as_str() {
             "1-0" => {
-                white_entry.0 += 1.0; // Increment win count for white player
+                white_entry.0 += 1.0;
             }
             "0-1" => {
-                black_entry.0 += 1.0; // Increment win count for black player
+                black_entry.0 += 1.0;
             }
             "1/2-1/2" => {
-                white_entry.1 += 0.5; // Increment draw count for white player
-                black_entry.1 += 0.5; // Increment draw count for black player
+                white_entry.1 += 0.5;
+                black_entry.1 += 0.5;
             }
             _ => {}
         }
 
-        white_entry.2 += game.white_rating_diff.unwrap_or(0.0) as f64; // Accumulate rating difference for white player
-        black_entry.2 += game.black_rating_diff.unwrap_or(0.0) as f64; // Accumulate rating difference for black player
+        white_entry.2 += game.white_rating_diff.unwrap_or(0.0) as f64; 
+        black_entry.2 += game.black_rating_diff.unwrap_or(0.0) as f64;
 
-        white_entry.3 += 1; // Increment game count for white player
-        black_entry.3 += 1; // Increment game count for black player
+        white_entry.3 += 1; 
+        black_entry.3 += 1; 
     }
 
     let mut player_metrics = HashMap::new();
